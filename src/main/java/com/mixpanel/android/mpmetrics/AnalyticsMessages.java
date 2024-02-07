@@ -13,6 +13,7 @@ import com.mixpanel.android.util.Base64Coder;
 import com.mixpanel.android.util.HttpService;
 import com.mixpanel.android.util.LegacyVersionUtils;
 import com.mixpanel.android.util.MPLog;
+import com.mixpanel.android.util.RemoteProvider;
 import com.mixpanel.android.util.RemoteService;
 
 import org.json.JSONException;
@@ -40,7 +41,8 @@ import javax.net.ssl.SSLSocketFactory;
     /**
      * Do not call directly. You should call AnalyticsMessages.getInstance()
      */
-    /* package */ AnalyticsMessages(final Context context, MPConfig config) {
+    /* package */ AnalyticsMessages(final Context context, MPConfig config, RemoteProvider remoteProvider) {
+        this.remoteProvider = remoteProvider;
         mContext = context;
         mConfig = config;
         mWorker = createWorker();
@@ -56,17 +58,15 @@ import javax.net.ssl.SSLSocketFactory;
      * for yourself.
      *
      * @param messageContext should be the Main Activity of the application
-     *     associated with these messages.
-     *
-     * @param config The MPConfig configuration settings for the AnalyticsMessages instance.
-     *               
+     *                       associated with these messages.
+     * @param config         The MPConfig configuration settings for the AnalyticsMessages instance.
      */
-    public static AnalyticsMessages getInstance(final Context messageContext, MPConfig config) {
+    public static AnalyticsMessages getInstance(final Context messageContext, MPConfig config, RemoteProvider remoteProvider) {
         synchronized (sInstances) {
             final Context appContext = messageContext.getApplicationContext();
             AnalyticsMessages ret;
-            if (! sInstances.containsKey(appContext)) {
-                ret = new AnalyticsMessages(appContext, config);
+            if (!sInstances.containsKey(appContext)) {
+                ret = new AnalyticsMessages(appContext, config, remoteProvider);
                 sInstances.put(appContext, ret);
             } else {
                 ret = sInstances.get(appContext);
@@ -169,7 +169,11 @@ import javax.net.ssl.SSLSocketFactory;
     }
 
     protected RemoteService getPoster() {
-        return new HttpService();
+        if (remoteProvider == null) {
+            return new HttpService();
+        } else {
+            return remoteProvider.getPoster();
+        }
     }
 
     ////////////////////////////////////////////////////
@@ -270,7 +274,8 @@ import javax.net.ssl.SSLSocketFactory;
                         // see https://github.com/mixpanel/mixpanel-android/issues/567
                         message.remove(jsonKey);
                         MPLog.e(LOGTAG, "Removing people profile property from update (see https://github.com/mixpanel/mixpanel-android/issues/567)", e);
-                    } catch (JSONException e) {}
+                    } catch (JSONException e) {
+                    }
                 }
             }
             this.mMessage = message;
@@ -328,13 +333,13 @@ import javax.net.ssl.SSLSocketFactory;
         }
 
         public boolean isDead() {
-            synchronized(mHandlerLock) {
+            synchronized (mHandlerLock) {
                 return mHandler == null;
             }
         }
 
         public void runMessage(Message msg) {
-            synchronized(mHandlerLock) {
+            synchronized (mHandlerLock) {
                 if (mHandler == null) {
                     // We died under suspicious circumstances. Don't try to send any more events.
                     logAboutMessageToMixpanel("Dead mixpanel worker dropping a message: " + msg.what);
@@ -426,7 +431,7 @@ import javax.net.ssl.SSLSocketFactory;
                         mDbAdapter.cleanupAllEvents(MPDbAdapter.Table.ANONYMOUS_PEOPLE, token);
                     } else if (msg.what == KILL_WORKER) {
                         MPLog.w(LOGTAG, "Worker received a hard kill. Dumping all events and force-killing. Thread id " + Thread.currentThread().getId());
-                        synchronized(mHandlerLock) {
+                        synchronized (mHandlerLock) {
                             mDbAdapter.deleteDB();
                             mHandler = null;
                             Looper.myLooper().quit();
@@ -553,7 +558,7 @@ import javax.net.ssl.SSLSocketFactory;
                         dbAdapter.cleanupEvents(lastId, table, token);
                     } else {
                         removeMessages(FLUSH_QUEUE, token);
-                        mTrackEngageRetryAfter = Math.max((long)Math.pow(2, mFailedRetries) * 60000, mTrackEngageRetryAfter);
+                        mTrackEngageRetryAfter = Math.max((long) Math.pow(2, mFailedRetries) * 60000, mTrackEngageRetryAfter);
                         mTrackEngageRetryAfter = Math.min(mTrackEngageRetryAfter, 10 * 60 * 1000); // limit 10 min
                         final Message flushMessage = Message.obtain();
                         flushMessage.what = FLUSH_QUEUE;
@@ -597,8 +602,8 @@ import javax.net.ssl.SSLSocketFactory;
                     ret.put("$app_version_string", applicationVersionName);
                 }
 
-                 final Integer applicationVersionCode = mSystemInformation.getAppVersionCode();
-                 if (null != applicationVersionCode) {
+                final Integer applicationVersionCode = mSystemInformation.getAppVersionCode();
+                if (null != applicationVersionCode) {
                     final String applicationVersion = String.valueOf(applicationVersionCode);
                     ret.put("$app_release", applicationVersion);
                     ret.put("$app_build_number", applicationVersion);
@@ -637,7 +642,7 @@ import javax.net.ssl.SSLSocketFactory;
                 final JSONObject sendProperties = getDefaultEventProperties();
                 sendProperties.put("token", eventDescription.getToken());
                 if (eventProperties != null) {
-                    for (final Iterator<?> iter = eventProperties.keys(); iter.hasNext();) {
+                    for (final Iterator<?> iter = eventProperties.keys(); iter.hasNext(); ) {
                         final String key = (String) iter.next();
                         sendProperties.put(key, eventProperties.get(key));
                     }
@@ -686,6 +691,8 @@ import javax.net.ssl.SSLSocketFactory;
 
     // Used across thread boundaries
     private final Worker mWorker;
+    RemoteProvider remoteProvider;
+
     protected final Context mContext;
     protected final MPConfig mConfig;
 

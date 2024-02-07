@@ -81,7 +81,7 @@ public class OptOutTest {
         };
 
         mMockAdapter = getMockDBAdapter();
-        mAnalyticsMessages = new AnalyticsMessages(InstrumentationRegistry.getInstrumentation().getContext(), MPConfig.getInstance(InstrumentationRegistry.getInstrumentation().getContext())) {
+        mAnalyticsMessages = new AnalyticsMessages(InstrumentationRegistry.getInstrumentation().getContext(), MPConfig.getInstance(InstrumentationRegistry.getInstrumentation().getContext()), null) {
             @Override
             protected RemoteService getPoster() {
                 return mockPoster;
